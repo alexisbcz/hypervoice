@@ -5,6 +5,7 @@ struct ScriptView: View {
     @Environment(Studio.self) private var studio
     @Environment(Library.self) private var library
     @State private var showsSpeakers = true
+    @Environment(\.textSize) private var textSize
 
     var body: some View {
         @Bindable var studio = studio
@@ -12,8 +13,8 @@ struct ScriptView: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 TextEditor(text: $studio.script)
-                    .font(.system(size: 15))
-                    .lineSpacing(6)
+                    .font(.system(size: textSize - 2))
+                    .lineSpacing(textSize * 0.35)
                     .scrollContentBackground(.hidden)
                     .padding(20)
                     .frame(minWidth: 0, maxWidth: .infinity)
@@ -75,5 +76,6 @@ private struct SpeakerList: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
     }
 }

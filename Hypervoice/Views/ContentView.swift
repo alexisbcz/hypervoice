@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(Studio.self) private var studio
     @Environment(Library.self) private var library
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         @Bindable var studio = studio
@@ -18,6 +19,7 @@ struct ContentView: View {
                     row(.models)
                 }
             }
+            .modifier(SidebarDarkening())
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
         } detail: {
             Group {
@@ -30,8 +32,15 @@ struct ContentView: View {
                 case .models: ModelsView()
                 }
             }
+            .modifier(PageBackground())
             .safeAreaInset(edge: .bottom, spacing: 0) { NowPlayingBar() }
         }
+        #if DEBUG
+        // HYPERVOICE_OPEN_SETTINGS=1 opens Settings at launch, for checking it by eye.
+        .task {
+            if ProcessInfo.processInfo.environment["HYPERVOICE_OPEN_SETTINGS"] != nil { openSettings() }
+        }
+        #endif
         .sheet(item: $studio.sheet) { sheet in
             switch sheet {
             case .clone(let url): CloneSheet(source: url)

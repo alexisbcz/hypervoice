@@ -70,6 +70,7 @@ struct HistoryView: View {
                     if let clip = library.clips.first(where: { ids.contains($0.id) }) { player.toggle(clip) }
                 }
                 .onDeleteCommand { delete(selection) }
+                .scrollContentBackground(.hidden)
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search clips")

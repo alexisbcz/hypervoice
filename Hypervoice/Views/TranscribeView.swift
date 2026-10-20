@@ -68,6 +68,7 @@ struct TranscribeView: View {
 
 private struct TranscriptView: View {
     @Environment(Player.self) private var player
+    @Environment(\.textSize) private var textSize
     let transcript: Transcript
 
     var body: some View {
@@ -87,7 +88,7 @@ private struct TranscriptView: View {
                     .monospacedDigit()
                     .help("Play from here")
                     Text(segment.text)
-                        .font(.system(size: 15))
+                        .font(.system(size: textSize - 2))
                         .lineSpacing(3)
                         .textSelection(.enabled)
                         .foregroundStyle(isCurrent ? Color.accentColor : .primary)
@@ -96,6 +97,7 @@ private struct TranscriptView: View {
             }
         }
         .listStyle(.inset)
+        .scrollContentBackground(.hidden)
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button(player.isPlaying(id) ? "Pause" : "Play", systemImage: player.isPlaying(id) ? "pause.fill" : "play.fill") {

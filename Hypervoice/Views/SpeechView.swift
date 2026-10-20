@@ -5,20 +5,21 @@ struct SpeechView: View {
     @Environment(Studio.self) private var studio
     @Environment(Generator.self) private var generator
     @Environment(ModelStore.self) private var models
+    @Environment(\.textSize) private var textSize
 
     var body: some View {
         @Bindable var studio = studio
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $studio.draft)
-                    .font(.system(size: 17))
-                    .lineSpacing(5)
+                    .font(.system(size: textSize))
+                    .lineSpacing(textSize * 0.3)
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
                 if studio.draft.isEmpty {
                     Text(placeholder)
-                        .font(.system(size: 17))
+                        .font(.system(size: textSize))
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal, 29)
                         .padding(.top, 20)

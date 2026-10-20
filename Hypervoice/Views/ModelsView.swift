@@ -21,6 +21,7 @@ struct ModelsView: View {
             }
         }
         .listStyle(.inset)
+        .scrollContentBackground(.hidden)
         .navigationTitle("Models")
         .toolbar {
             Button("Refresh", systemImage: "arrow.clockwise") { models.refresh() }

@@ -11,8 +11,11 @@ enum Snapshot {
         let panes = environment["HYPERVOICE_PANES"]?.split(separator: ",").compactMap { Pane(rawValue: String($0)) } ?? Pane.allCases
         Task {
             try? await Task.sleep(for: .seconds(2))
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first { $0.isVisible }?.makeKeyAndOrderFront(nil)
+            let offscreen = environment["HYPERVOICE_OFFSCREEN"] != nil
+            if !offscreen {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.windows.first { $0.isVisible }?.makeKeyAndOrderFront(nil)
+            }
             if environment["HYPERVOICE_SCRIPT"] != nil || environment["HYPERVOICE_DRAFT"] != nil {
                 studio.section = environment["HYPERVOICE_SCRIPT"] != nil ? .script : .speech
                 if let draft = environment["HYPERVOICE_DRAFT"] { studio.draft = draft }
@@ -29,13 +32,18 @@ enum Snapshot {
             }
             for pane in panes {
                 studio.section = pane
-                if let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }) {
+                if !offscreen, let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }) {
                     window.makeKeyAndOrderFront(nil)
                     // No text cursor, and no stray keystrokes landing in the editor.
                     window.makeFirstResponder(nil)
                 }
                 try? await Task.sleep(for: .seconds(1.5))
                 save(to: URL(fileURLWithPath: folder).appending(path: "\(pane.rawValue).png"))
+            }
+            if environment["HYPERVOICE_OPEN_SETTINGS"] != nil, let settings = NSApp.windows.first(where: { $0.frame.width <= 700 && $0.contentView != nil }),
+               let view = settings.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appending(path: "settings.png"))
             }
             if environment["HYPERVOICE_STAY"] == nil { NSApp.terminate(nil) }
         }
@@ -44,6 +52,16 @@ enum Snapshot {
     /// The window as the screen shows it, shadow included. An app may capture its own windows
     /// without the Screen Recording permission.
     static func save(to url: URL) {
+        // HYPERVOICE_OFFSCREEN draws the window's views without it ever reaching the screen
+        // (launch with `open -j`), at the cost of the sidebar's glass, which only the window server draws.
+        if ProcessInfo.processInfo.environment["HYPERVOICE_OFFSCREEN"] != nil {
+            guard let view = NSApp.windows.first(where: { $0.frame.width > 400 })?.contentView,
+                  let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+            else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: url)
+            return
+        }
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 400 }),
               let image = capture(CGWindowID(window.windowNumber))
         else { return }

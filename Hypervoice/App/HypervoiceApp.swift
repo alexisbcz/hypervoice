@@ -13,6 +13,7 @@ struct HypervoiceApp: App {
                 .environment(Generator.shared)
                 .environment(Player.shared)
                 .environment(ModelStore.shared)
+                .modifier(AppAppearance())
                 .frame(minWidth: 820, minHeight: 520)
                 .task {
                     Server.shared.setEnabled(UserDefaults.standard.bool(forKey: Pref.serverEnabled), port: Self.port)
@@ -57,6 +58,7 @@ struct HypervoiceApp: App {
             SettingsView()
                 .environment(Library.shared)
                 .environment(ModelStore.shared)
+                .modifier(AppAppearance())
         }
     }
 
