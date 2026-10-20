@@ -23,8 +23,17 @@ enum Snapshot {
                 while Generator.shared.isGenerating { try? await Task.sleep(for: .milliseconds(200)) }
                 if let error = Generator.shared.error { try? error.write(toFile: folder + "/error.txt", atomically: true, encoding: .utf8) }
             }
+            // Time to bring the window to the front from outside, since a background launch can't take focus.
+            if let delay = environment["HYPERVOICE_CAPTURE_DELAY"].flatMap(Double.init) {
+                try? await Task.sleep(for: .seconds(delay))
+            }
             for pane in panes {
                 studio.section = pane
+                if let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }) {
+                    window.makeKeyAndOrderFront(nil)
+                    // No text cursor, and no stray keystrokes landing in the editor.
+                    window.makeFirstResponder(nil)
+                }
                 try? await Task.sleep(for: .seconds(1.5))
                 save(to: URL(fileURLWithPath: folder).appending(path: "\(pane.rawValue).png"))
             }
