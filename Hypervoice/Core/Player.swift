@@ -34,6 +34,10 @@ final class Player {
         engine.attach(node)
         engine.attach(timePitch)
         clipDelegate.onFinish = { [weak self] in self?.stop() }
+        #if DEBUG
+        // HYPERVOICE_MUTE keeps test runs silent.
+        if ProcessInfo.processInfo.environment["HYPERVOICE_MUTE"] != nil { engine.mainMixerNode.outputVolume = 0 }
+        #endif
     }
 
     func isPlaying(_ id: String) -> Bool { playing == id }

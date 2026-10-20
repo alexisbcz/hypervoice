@@ -19,6 +19,7 @@ enum Snapshot {
             if environment["HYPERVOICE_SCRIPT"] != nil || environment["HYPERVOICE_DRAFT"] != nil {
                 studio.section = environment["HYPERVOICE_SCRIPT"] != nil ? .script : .speech
                 if let draft = environment["HYPERVOICE_DRAFT"] { studio.draft = draft }
+                if let script = environment["HYPERVOICE_SCRIPT_TEXT"] { studio.script = script }
                 if let voice = environment["HYPERVOICE_VOICE"].flatMap(Library.shared.voice(named:)) { studio.voiceID = voice.id }
                 studio.generate()
                 try? await Task.sleep(for: .seconds(1))
@@ -29,6 +30,11 @@ enum Snapshot {
             // Time to bring the window to the front from outside, since a background launch can't take focus.
             if let delay = environment["HYPERVOICE_CAPTURE_DELAY"].flatMap(Double.init) {
                 try? await Task.sleep(for: .seconds(delay))
+            }
+            if let path = environment["HYPERVOICE_EDITOR_TEST"] {
+                studio.section = .script
+                try? await Task.sleep(for: .seconds(1))
+                try? editorReport().write(toFile: path, atomically: true, encoding: .utf8)
             }
             for pane in panes {
                 studio.section = pane
@@ -47,6 +53,35 @@ enum Snapshot {
             }
             if environment["HYPERVOICE_STAY"] == nil { NSApp.terminate(nil) }
         }
+    }
+
+    /// Drives the script editor the way typing would, and reports what completion and recasting do.
+    private static func editorReport() -> String {
+        func find(_ view: NSView) -> ScriptTextView? {
+            if let view = view as? ScriptTextView { return view }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        guard let editor = NSApp.windows.lazy.compactMap({ $0.contentView.flatMap(find) }).first else { return "no editor" }
+        var report: [String] = []
+        for (text, label) in [("@", "after @"), ("@He", "after @He"), ("Hello @He", "mid-line @"), ("[sound Gl", "after [sound Gl"), ("plain", "plain text")] {
+            editor.string = text
+            editor.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+            let range = editor.rangeForUserCompletion
+            let words = editor.completions(for: range).prefix(5)
+            report.append("\(label): offer=\(editor.shouldOfferCompletion()) range=\(range) → \(words.joined(separator: ", "))")
+        }
+        editor.string = "@Heart Hi.\nGeorge: Yo.\n@heart Again."
+        if let george = Library.shared.voice(named: "George") {
+            editor.recast("Heart", to: george, only: nil)
+            report.append("recast Heart→George everywhere: \(editor.string.replacingOccurrences(of: "\n", with: " | "))")
+            editor.undoManager?.undo()
+            report.append("after undo: \(editor.string.replacingOccurrences(of: "\n", with: " | "))")
+        }
+        if let sky = Library.shared.voice(named: "Sky") {
+            editor.recast("George", to: sky, only: (editor.string as NSString).range(of: "George:").location)
+            report.append("recast this line George→Sky: \(editor.string.replacingOccurrences(of: "\n", with: " | "))")
+        }
+        return report.joined(separator: "\n")
     }
 
     /// The window as the screen shows it, shadow included. An app may capture its own windows

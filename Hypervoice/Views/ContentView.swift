@@ -130,8 +130,13 @@ struct VoiceAvatar: View {
     }
 
     static func color(for name: String) -> Color {
+        Color(hue: hue(for: name), saturation: 0.5, brightness: 0.78)
+    }
+
+    /// Stable per name, so a voice keeps its color everywhere, the script editor included.
+    static func hue(for name: String) -> Double {
         let hash = name.unicodeScalars.reduce(UInt32(5381)) { ($0 << 5) &+ $0 &+ $1.value }
-        return Color(hue: Double(hash % 360) / 360, saturation: 0.5, brightness: 0.78)
+        return Double(hash % 360) / 360
     }
 }
 

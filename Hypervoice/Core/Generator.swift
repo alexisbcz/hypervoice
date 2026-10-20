@@ -13,6 +13,13 @@ final class Generator {
         var voiceName: String
     }
 
+    /// One step of a recording: speech, a silence, or a sound file played as is.
+    enum Cue: Sendable {
+        case speech(Line)
+        case silence(Double)
+        case sound(URL)
+    }
+
     /// Every clip is stored at this rate, so lines from different engines join cleanly.
     static let sampleRate = 24_000
 
@@ -36,9 +43,20 @@ final class Generator {
 
     /// Generates and plays; `save` keeps the result in History.
     func run(_ lines: [Line], title: String, save: Bool = true) {
+        run(lines.map(Cue.speech), title: title, save: save)
+    }
+
+    func run(_ cues: [Cue], title: String, save: Bool = true) {
         cancel()
-        let lines = lines.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard !lines.isEmpty else { return }
+        let cues = cues.filter { cue in
+            if case .speech(let line) = cue { return !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return true
+        }
+        let lines = cues.compactMap { cue -> Line? in
+            if case .speech(let line) = cue { return line }
+            return nil
+        }
+        guard !cues.isEmpty else { return }
         isGenerating = true
         progress = 0
         peaks = []
@@ -49,7 +67,7 @@ final class Generator {
         task = Task {
             var streaming = false
             do {
-                let samples = try await render(lines) { chunk in
+                let samples = try await render(cues) { chunk in
                     if !streaming {
                         try? Player.shared.startStream(sampleRate: Self.sampleRate)
                         streaming = true
@@ -91,30 +109,64 @@ final class Generator {
 
     /// Generates every line, calling `onChunk` with each piece as it's ready; returns all of it joined.
     func render(_ lines: [Line], report: Bool = true, onChunk: ([Float]) -> Void = { _ in }) async throws -> [Float] {
-        let pieces = lines.enumerated().flatMap { index, line in
-            Chunker.chunks(of: line.text).map { (line: index, text: $0) }
+        try await render(lines.map(Cue.speech), report: report, onChunk: onChunk)
+    }
+
+    private enum Piece {
+        /// `cue` tells speakers apart, for the breath between them.
+        case speech(cue: Int, request: SpeechRequest)
+        case silence(Double)
+        case sound(URL)
+    }
+
+    func render(_ cues: [Cue], report: Bool = true, onChunk: ([Float]) -> Void = { _ in }) async throws -> [Float] {
+        let pieces: [Piece] = cues.enumerated().flatMap { index, cue -> [Piece] in
+            switch cue {
+            case .speech(let line):
+                return Chunker.chunks(of: line.text).map { text in
+                    var request = line.request
+                    request.text = text
+                    return .speech(cue: index, request: request)
+                }
+            case .silence(let seconds): return [.silence(seconds)]
+            case .sound(let url): return [.sound(url)]
+            }
         }
+        let speechCount = pieces.filter { if case .speech = $0 { true } else { false } }.count
+        var spoken = 0
         var output: [Float] = []
         if report { synthesisTime = 0 }
         for (number, piece) in pieces.enumerated() {
             try Task.checkCancellation()
-            var request = lines[piece.line].request
-            request.text = piece.text
-            let engine = request.engine
-            if await Synth.shared.loadedEngine != engine {
-                if report { status = ModelStore.shared.isInstalled(engine) ? "Loading \(engine.name)…" : "Downloading \(engine.name)…" }
-                _ = try await ModelStore.shared.track(.engine(engine)) { try await Synth.shared.prepare(engine) }
+            var samples: [Float]
+            switch piece {
+            case .silence(let seconds):
+                samples = WAV.silence(seconds: seconds, sampleRate: Self.sampleRate)
+            case .sound(let url):
+                // Alert sounds are mastered far louder than speech; bring every sound to one level.
+                samples = try await WAV.read(url, sampleRate: Self.sampleRate)
+                if let peak = samples.map(abs).max(), peak > 0 {
+                    let gain = 0.5 / peak
+                    samples = samples.map { $0 * gain }
+                }
+            case .speech(let cue, let request):
+                let engine = request.engine
+                if await Synth.shared.loadedEngine != engine {
+                    if report { status = ModelStore.shared.isInstalled(engine) ? "Loading \(engine.name)…" : "Downloading \(engine.name)…" }
+                    _ = try await ModelStore.shared.track(.engine(engine)) { try await Synth.shared.prepare(engine) }
+                }
+                spoken += 1
+                if report { status = speechCount == 1 ? "Generating…" : "Generating \(spoken) of \(speechCount)…" }
+                let rate = try await Synth.shared.prepare(engine)
+                let started = Date.now
+                samples = Self.resample(try await Synth.shared.synthesize(request), from: rate, to: Self.sampleRate)
+                if report { synthesisTime += Date.now.timeIntervalSince(started) }
+                // A breath between speakers in a script, unless a pause or a sound already separates them.
+                if number + 1 < pieces.count, case .speech(let next, _) = pieces[number + 1], next != cue {
+                    samples += WAV.silence(seconds: 0.35, sampleRate: Self.sampleRate)
+                }
             }
-            if report { status = pieces.count == 1 ? "Generating…" : "Generating \(number + 1) of \(pieces.count)…" }
-            let rate = try await Synth.shared.prepare(engine)
-            let started = Date.now
-            var samples = Self.resample(try await Synth.shared.synthesize(request), from: rate, to: Self.sampleRate)
-            if report { synthesisTime += Date.now.timeIntervalSince(started) }
             try Task.checkCancellation()
-            // A breath between speakers in a script.
-            if number + 1 < pieces.count, pieces[number + 1].line != piece.line {
-                samples += WAV.silence(seconds: 0.35, sampleRate: Self.sampleRate)
-            }
             output += samples
             onChunk(samples)
             if report { progress = Double(number + 1) / Double(pieces.count) }
@@ -135,49 +187,4 @@ final class Generator {
             return samples[low] * (1 - fraction) + samples[high] * fraction
         }
     }
-}
-
-/// A script: one speaker per paragraph, written as "Name: what they say".
-/// Paragraphs without a name continue with whoever spoke last.
-struct Script {
-    struct Part: Identifiable {
-        let id: Int
-        var speaker: String
-        var text: String
-        var voice: Voice?
-    }
-
-    var parts: [Part]
-
-    init(_ text: String, library: Library, fallback: Voice?) {
-        var parts: [Part] = []
-        var speaker = fallback?.name ?? ""
-        var voice = fallback
-        for paragraph in text.components(separatedBy: .newlines) {
-            var line = paragraph.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty else { continue }
-            if let colon = line.firstIndex(of: ":"), line.distance(from: line.startIndex, to: colon) <= 32 {
-                let name = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
-                if !name.isEmpty, !name.contains(where: { ".!?".contains($0) }) {
-                    speaker = name
-                    voice = library.voice(named: name)
-                    line = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-                }
-            }
-            guard !line.isEmpty else { continue }
-            if let last = parts.last, last.speaker == speaker {
-                parts[parts.count - 1].text += "\n" + line
-            } else {
-                parts.append(Part(id: parts.count, speaker: speaker, text: line, voice: voice))
-            }
-        }
-        self.parts = parts
-    }
-
-    var speakers: [(name: String, voice: Voice?)] {
-        var seen = Set<String>()
-        return parts.compactMap { part in seen.insert(part.speaker).inserted ? (part.speaker, part.voice) : nil }
-    }
-
-    var unmatched: [String] { speakers.filter { $0.voice == nil }.map(\.name) }
 }

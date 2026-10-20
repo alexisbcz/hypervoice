@@ -9,7 +9,13 @@ final class Library {
     private(set) var voices: [Voice] = []
     private(set) var clips: [Clip] = []
 
-    static let folder = URL.applicationSupportDirectory.appending(path: "Hypervoice", directoryHint: .isDirectory)
+    static let folder: URL = {
+        #if DEBUG
+        // HYPERVOICE_LIBRARY points a test run at its own voices, clips and sounds.
+        if let path = ProcessInfo.processInfo.environment["HYPERVOICE_LIBRARY"] { return URL(fileURLWithPath: path, isDirectory: true) }
+        #endif
+        return URL.applicationSupportDirectory.appending(path: "Hypervoice", directoryHint: .isDirectory)
+    }()
     static let voicesFolder = folder.appending(path: "Voices", directoryHint: .isDirectory)
     static let clipsFolder = folder.appending(path: "Clips", directoryHint: .isDirectory)
     private static let voicesFile = folder.appending(path: "voices.json")

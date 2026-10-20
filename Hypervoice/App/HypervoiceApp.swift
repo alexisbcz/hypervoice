@@ -150,12 +150,19 @@ final class Studio {
             guard let voice, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             Generator.shared.speak(draft, voice: voice, engine: engine, direction: direction)
         case .script:
-            let parsed = Script(script, library: Library.shared, fallback: voice)
-            let lines = parsed.parts.compactMap { part -> Generator.Line? in
-                guard let voice = part.voice else { return nil }
-                return Generator.Line(text: part.text, request: .make(part.text, voice: voice, engine: engine), voiceName: voice.name)
+            // Speakers with no voice by that name, and sounds that aren't in the list, are left out.
+            let cues = Script(script, library: Library.shared, fallback: voice).cues.compactMap { cue -> Generator.Cue? in
+                switch cue {
+                case .speech(_, let voice, let text):
+                    guard let voice else { return nil }
+                    return .speech(.init(text: text, request: .make(text, voice: voice, engine: engine), voiceName: voice.name))
+                case .pause(let seconds):
+                    return .silence(seconds)
+                case .sound(_, let sound):
+                    return sound.map { .sound($0.url) }
+                }
             }
-            Generator.shared.run(lines, title: script)
+            Generator.shared.run(cues, title: script)
         default:
             break
         }
@@ -193,9 +200,11 @@ final class Studio {
     }
 
     static let sampleScript = """
-    Heart: Welcome back to the show. Today we're talking about voices that never leave your Mac.
-    George: Which, honestly, is the only way I'd want it.
-    Heart: Every word you hear was generated on-device, sentence by sentence.
-    George: No cloud, no account, no meter running. Let's get into it.
+    [sound Hero]
+    @Heart Welcome back to the show. Today we're talking about voices that never leave your Mac.
+    @George Which, honestly, is the only way I'd want it.
+    [pause 1s]
+    @Heart Every word you hear was generated on-device, sentence by sentence.
+    @George No cloud, no account, no meter running. Let's get into it.
     """
 }
