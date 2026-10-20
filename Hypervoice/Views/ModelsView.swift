@@ -63,6 +63,19 @@ private struct ModelRow: View {
                 }
                 Text(model.summary).foregroundStyle(.secondary)
                 Text(model.repository).font(.caption).foregroundStyle(.tertiary).textSelection(.enabled)
+                if case .engine(let engine) = model {
+                    if let note = engine.licenseNote {
+                        Text(note).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if engine.isGated, !models.isInstalled(model) {
+                        HStack(spacing: 4) {
+                            Link("Accept the terms on Hugging Face", destination: engine.page)
+                            Text(HubToken.isSet ? "· token saved" : "· then add a token in Settings")
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.caption)
+                    }
+                }
                 if let error = models.errors[model] {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }

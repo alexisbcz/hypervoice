@@ -442,7 +442,7 @@ struct EditVoiceSheet: View {
             Form {
                 TextField("Name", text: $voice.name)
                 Picker("Speaks with", selection: $voice.engine) {
-                    ForEach(Engine.cloning) { Text($0.name).tag($0) }
+                    ForEach(voice.engines) { Text($0.name).tag($0) }
                 }
                 TextField("Words in the sample", text: Binding(get: { voice.transcript ?? "" }, set: { voice.transcript = $0 }), axis: .vertical)
                     .lineLimit(3...6)

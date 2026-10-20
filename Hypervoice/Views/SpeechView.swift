@@ -62,7 +62,7 @@ struct SpeechControls: View {
                 .fixedSize()
             if let voice, !voice.isPreset {
                 Picker("Engine", selection: $studio.engine) {
-                    ForEach(Engine.cloning) { Text($0.name).tag($0) }
+                    ForEach(voice.engines) { Text($0.name).tag($0) }
                 }
                 .labelsHidden()
                 .fixedSize()

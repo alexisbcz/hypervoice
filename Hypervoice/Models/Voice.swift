@@ -9,6 +9,9 @@ nonisolated struct Voice: Codable, Identifiable, Hashable, Sendable {
         case designed
         /// Built into an engine.
         case preset
+        /// A Phonon voice file, made in Gradium Studio: an embedding rather than a recording,
+        /// since Phonon's released checkpoints can't clone from audio.
+        case embedding
     }
 
     var id: String
@@ -28,23 +31,30 @@ nonisolated struct Voice: Codable, Identifiable, Hashable, Sendable {
     var created: Date
 
     var isPreset: Bool { origin == .preset }
+    /// Has a recording you can play; Phonon voice files aren't audio.
+    var hasSample: Bool { sample != nil && origin != .embedding }
 
     /// Engines that can speak in this voice.
     var engines: [Engine] {
-        isPreset ? [engine] : Engine.cloning
+        switch origin {
+        case .preset: [engine]
+        case .embedding: [.phonon, .phononMultilingual]
+        case .cloned, .designed: Engine.cloning
+        }
     }
 
     var subtitle: String {
         switch origin {
         case .cloned: "Cloned"
         case .designed: "Designed"
+        case .embedding: "Phonon voice"
         case .preset: [engine.name, language].compactMap(\.self).joined(separator: " · ")
         }
     }
 
     static func preset(_ preset: Preset, of engine: Engine) -> Voice {
         Voice(id: "\(engine.rawValue):\(preset.id)", name: preset.name, origin: .preset, engine: engine,
-              preset: preset.id, language: preset.language, created: .distantPast)
+              prompt: preset.detail, preset: preset.id, language: preset.language, created: .distantPast)
     }
 
     /// Every built-in voice, grouped by engine in catalog order.

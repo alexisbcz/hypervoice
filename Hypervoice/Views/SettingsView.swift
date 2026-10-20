@@ -42,12 +42,46 @@ private struct GeneralSettings: View {
                     }
                 }
             }
+            HubTokenSection()
         }
         .formStyle(.grouped)
         .frame(width: 520)
     }
 
     static let languages = ["en", "fr", "es", "de", "it", "pt", "nl", "ja", "zh", "ko", "ru", "ar", "hi", "pl", "tr", "sv", "uk"]
+}
+
+/// The Hugging Face token some models need before they'll download.
+private struct HubTokenSection: View {
+    @State private var token = HubToken.value ?? ""
+    @State private var isSaved = HubToken.isSet
+
+    var body: some View {
+        SwiftUI.Section {
+            SecureField("Access token", text: $token, prompt: Text("hf_…"))
+                .onSubmit(save)
+            HStack {
+                Link("Create a token", destination: URL(string: "https://huggingface.co/settings/tokens")!)
+                Spacer()
+                if isSaved, token == HubToken.value {
+                    Label("Saved in the Keychain", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                }
+                Button(token.isEmpty && isSaved ? "Remove" : "Save", action: save)
+                    .disabled(token == (HubToken.value ?? ""))
+            }
+        } header: {
+            Text("Hugging Face")
+        } footer: {
+            Text("Phonon Multilingual only downloads once you accept its terms on Hugging Face. A read-only token from that account is enough.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func save() {
+        HubToken.save(token)
+        isSaved = HubToken.isSet
+        ModelStore.shared.refresh()
+    }
 }
 
 private struct APISettings: View {

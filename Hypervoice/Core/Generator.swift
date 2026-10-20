@@ -87,7 +87,7 @@ final class Generator {
             } catch is CancellationError {
             } catch {
                 if !Task.isCancelled {
-                    self.error = error.localizedDescription
+                    self.error = engines.first(where: \.isGated).map { HubToken.explain(error, for: $0) } ?? error.localizedDescription
                     Player.shared.stop()
                 }
             }

@@ -121,7 +121,7 @@ struct VoiceAvatar: View {
                         .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                 } else {
-                    Image(systemName: voice.origin == .designed ? "sparkles" : "waveform")
+                    Image(systemName: voice.origin == .designed ? "sparkles" : voice.origin == .embedding ? "person.wave.2" : "waveform")
                         .font(.system(size: size * 0.4, weight: .semibold))
                         .foregroundStyle(.white)
                 }
@@ -188,14 +188,33 @@ struct VoicePicker: View {
                     }
                 }
             }
-            ForEach(Engine.allCases.filter { !$0.presets.isEmpty }) { engine in
-                SwiftUI.Section(engine.name) {
-                    ForEach(engine.presets, id: \.self) { preset in
-                        let voice = Voice.preset(preset, of: engine)
-                        Text("\(voice.name) — \(preset.language)").tag(Optional(voice.id))
+            ForEach(Self.groups, id: \.title) { group in
+                SwiftUI.Section(group.title) {
+                    ForEach(group.presets, id: \.self) { preset in
+                        let voice = Voice.preset(preset, of: group.engine)
+                        Text(group.byLanguage ? voice.name : "\(voice.name) — \(preset.language)").tag(Optional(voice.id))
                     }
                 }
             }
+        }
+    }
+}
+
+extension VoicePicker {
+    struct Group {
+        var title: String
+        var engine: Engine
+        var presets: [Preset]
+        var byLanguage: Bool
+    }
+
+    /// One section per engine; a long catalog gets one per language instead, so it can be scanned.
+    static let groups: [Group] = Engine.allCases.flatMap { engine -> [Group] in
+        let presets = engine.presets
+        guard presets.count > 20 else { return presets.isEmpty ? [] : [Group(title: engine.name, engine: engine, presets: presets, byLanguage: false)] }
+        let languages = Array(NSOrderedSet(array: presets.map(\.language))) as? [String] ?? []
+        return languages.map { language in
+            Group(title: "\(engine.name) · \(language)", engine: engine, presets: presets.filter { $0.language == language }, byLanguage: true)
         }
     }
 }

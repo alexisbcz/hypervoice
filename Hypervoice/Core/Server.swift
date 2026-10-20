@@ -125,7 +125,7 @@ final class Server {
             try WAV.write(samples, sampleRate: Generator.sampleRate, to: url)
             return Response(status: 200, type: "audio/wav", body: try Data(contentsOf: url))
         } catch {
-            return .error(500, error.localizedDescription)
+            return .error(500, HubToken.explain(error, for: request.engine))
         }
     }
 

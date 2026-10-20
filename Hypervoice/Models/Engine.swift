@@ -3,7 +3,7 @@ import Foundation
 /// A speech model Hypervoice can run, all through MLX on Apple silicon.
 /// Each downloads from Hugging Face the first time it's used.
 nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
-    case qwen, qwenDesign, qwenPresets, chatterbox, omnivoice, kokoro, pocket
+    case qwen, qwenDesign, qwenPresets, chatterbox, omnivoice, kokoro, pocket, phonon, phononMultilingual
 
     var id: String { rawValue }
 
@@ -16,6 +16,8 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .omnivoice: "OmniVoice"
         case .kokoro: "Kokoro"
         case .pocket: "Pocket TTS"
+        case .phonon: "Phonon"
+        case .phononMultilingual: "Phonon Multilingual"
         }
     }
 
@@ -28,6 +30,8 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .omnivoice: "Clones or designs voices in more than 600 languages."
         case .kokoro: "Tiny and fast, with dozens of built-in voices."
         case .pocket: "Kyutai's tiny model. Starts speaking almost instantly."
+        case .phonon: "Gradium's 31M on-device model: very fast, with 37 English voices. Apache 2.0."
+        case .phononMultilingual: "Gradium's 40M model: 102 voices in English, French, German, Spanish and Portuguese. Non-commercial license."
         }
     }
 
@@ -40,6 +44,8 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .omnivoice: "mlx-community/OmniVoice"
         case .kokoro: "mlx-community/Kokoro-82M-bf16"
         case .pocket: "mlx-community/pocket-tts"
+        case .phonon: "gradium/phonon-31m-en"
+        case .phononMultilingual: "gradium/phonon-40m-multilingual"
         }
     }
 
@@ -51,6 +57,7 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .omnivoice: "omnivoice"
         case .kokoro: "kokoro"
         case .pocket: "pocket_tts"
+        case .phonon, .phononMultilingual: "phonon"
         }
     }
 
@@ -64,6 +71,8 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .omnivoice: 3_300_000_000
         case .kokoro: 390_000_000
         case .pocket: 240_000_000
+        case .phonon: 104_000_000
+        case .phononMultilingual: 123_000_000
         }
     }
 
@@ -75,6 +84,24 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
     var needsTranscript: Bool { [.qwen, .omnivoice].contains(self) }
     /// Takes a style instruction alongside a built-in voice.
     var takesDirection: Bool { self == .qwenPresets }
+    /// Hugging Face only serves it once you accept its terms there and give Hypervoice your token.
+    var isGated: Bool { self == .phononMultilingual }
+
+    /// The license, when it limits what you can do with the audio.
+    var licenseNote: String? {
+        self == .phononMultilingual ? "CC BY-NC 4.0: not for commercial use without Gradium's permission." : nil
+    }
+
+    var page: URL { URL(string: "https://huggingface.co/\(repository)")! }
+
+    /// What the model takes as `voice` for one of its presets.
+    func voiceArgument(_ preset: String) -> String? {
+        switch self {
+        case .phonon, .phononMultilingual: preset == "default" ? nil : PhononVoices.file(preset)
+        case .chatterbox: nil
+        default: preset
+        }
+    }
 
     /// Built-in voices, by the id the model knows them by.
     var presets: [Preset] {
@@ -101,6 +128,10 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
                 .map { Preset($0, $0.capitalized, "English") }
         case .chatterbox:
             [Preset("default", "Chatterbox", "English")]
+        case .phonon:
+            PhononVoices.english
+        case .phononMultilingual:
+            PhononVoices.all
         default:
             []
         }
@@ -114,11 +145,14 @@ nonisolated struct Preset: Hashable, Sendable {
     let id: String
     let name: String
     let language: String
+    /// How the voice sounds, when its maker describes it.
+    let detail: String?
 
-    init(_ id: String, _ name: String, _ language: String) {
+    init(_ id: String, _ name: String, _ language: String, detail: String? = nil) {
         self.id = id
         self.name = name
         self.language = language
+        self.detail = detail
     }
 }
 

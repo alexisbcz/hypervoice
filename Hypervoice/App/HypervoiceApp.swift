@@ -1,9 +1,14 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @main
 struct HypervoiceApp: App {
     @State private var studio = Studio()
+
+    init() {
+        HubToken.apply()
+    }
 
     var body: some Scene {
         Window("Hypervoice", id: "main") {
@@ -28,6 +33,7 @@ struct HypervoiceApp: App {
                     .keyboardShortcut("n")
                 Button("Design a Voice…") { studio.sheet = .design }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("Import Phonon Voices…") { studio.importPhononVoices() }
                 Divider()
                 Button("Transcribe a File…") {
                     studio.section = .transcribe
@@ -172,6 +178,41 @@ final class Studio {
     func use(_ voice: Voice) {
         voiceID = voice.id
         section = .speech
+    }
+
+    var importError: String?
+
+    /// Adds voice files made in Gradium Studio, which Phonon reads directly.
+    func importPhononVoices() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "safetensors") ?? .data]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose Phonon voice files (.safetensors) downloaded from Gradium Studio."
+        guard panel.runModal() == .OK else { return }
+        var rejected: [String] = []
+        var last: Voice?
+        for url in panel.urls {
+            guard Self.isPhononVoice(url) else {
+                rejected.append(url.lastPathComponent)
+                continue
+            }
+            let name = url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_", with: " ")
+            last = try? Library.shared.addVoice(name: name, origin: .embedding, sample: url, transcript: nil, engine: .phonon)
+        }
+        importError = rejected.isEmpty ? nil : "Not Phonon voice files: \(rejected.joined(separator: ", "))"
+        if let last { engine = .phonon; voiceID = last.id }
+        section = .voices
+    }
+
+    /// A safetensors file holding one of the tensors Phonon takes as a voice.
+    nonisolated static func isPhononVoice(_ url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url), let size = try? handle.read(upToCount: 8), size.count == 8 else { return false }
+        defer { try? handle.close() }
+        let length = size.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }
+        guard length < 1 << 20, let header = try? handle.read(upToCount: Int(length)),
+              let json = try? JSONSerialization.jsonObject(with: header) as? [String: Any]
+        else { return false }
+        return ["speaker_wavs", "emb", "audio_prompt"].contains { json[$0] != nil }
     }
 
     func openForTranscription() {

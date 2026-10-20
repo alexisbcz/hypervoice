@@ -96,7 +96,11 @@ final class ModelStore {
                 case .whisper: try await Transcriber.shared.prepare()
                 }
             } catch {
-                errors[model] = error.localizedDescription
+                if case .engine(let engine) = model {
+                    errors[model] = HubToken.explain(error, for: engine)
+                } else {
+                    errors[model] = error.localizedDescription
+                }
             }
             downloading[model] = nil
             refresh()

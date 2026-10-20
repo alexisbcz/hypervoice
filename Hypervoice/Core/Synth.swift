@@ -21,9 +21,12 @@ nonisolated struct SpeechRequest: Sendable {
         let engine = engine.flatMap { voice.engines.contains($0) ? $0 : nil } ?? voice.engine
         if voice.isPreset {
             let direction = direction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let id = voice.preset == "default" ? nil : voice.preset
+            let id = voice.preset.flatMap(engine.voiceArgument)
             let spoken = engine.takesDirection && !direction.isEmpty ? id.map { "\($0), \(direction)" } : id
             return SpeechRequest(text: text, engine: engine, voice: spoken)
+        }
+        if voice.origin == .embedding {
+            return SpeechRequest(text: text, engine: engine, voice: Library.shared.sampleURL(of: voice)?.path)
         }
         return SpeechRequest(text: text, engine: engine, sample: Library.shared.sampleURL(of: voice), transcript: voice.transcript)
     }
