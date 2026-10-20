@@ -99,8 +99,9 @@ struct AppAppearance: ViewModifier {
     }
 }
 
-/// Puts a pane on the page color, toolbar strip included: the toolbar's own gray would band the top of a
-/// darkened page, so it takes the page's color. Opaque, not hidden, so content can't scroll up behind the title.
+/// Puts a pane on the page color. The toolbar's own gray would band the top of a darkened page, so it's hidden
+/// and the page shows through. The window toolbar spans the sidebar too, so rather than paint it, an opaque strip
+/// covers just this column's title area, which keeps content from scrolling up behind the title.
 struct PageBackground: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(Pref.darkness) private var darkness = Pref.defaultDarkness
@@ -108,9 +109,18 @@ struct PageBackground: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(Color.page(darkness: darkness))
-            .toolbarBackground(Color.page(darkness: darkness), for: .windowToolbar)
-            .toolbarBackgroundVisibility(colorScheme == .dark && darkness > 0 ? .visible : .automatic, for: .windowToolbar)
+            .toolbarBackgroundVisibility(darkened ? .hidden : .automatic, for: .windowToolbar)
+            .overlay(alignment: .top) {
+                if darkened {
+                    Color.clear
+                        .frame(height: 0)
+                        .background(Color.page(darkness: darkness), ignoresSafeAreaEdges: .top)
+                        .allowsHitTesting(false)
+                }
+            }
     }
+
+    private var darkened: Bool { colorScheme == .dark && darkness > 0 }
 }
 
 /// With "Darken the sidebar too" on, the sidebar follows the darkness slider in dark mode.
