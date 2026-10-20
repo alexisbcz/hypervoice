@@ -1,0 +1,209 @@
+import SwiftUI
+
+struct ContentView: View {
+    @Environment(Studio.self) private var studio
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        @Bindable var studio = studio
+        NavigationSplitView {
+            List(selection: $studio.section) {
+                SwiftUI.Section("Create") {
+                    ForEach([Pane.speech, .script, .transcribe]) { row($0) }
+                }
+                SwiftUI.Section("Library") {
+                    ForEach([Pane.voices, .history]) { row($0) }
+                }
+                SwiftUI.Section("Setup") {
+                    row(.models)
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+        } detail: {
+            Group {
+                switch studio.section {
+                case .speech: SpeechView()
+                case .script: ScriptView()
+                case .transcribe: TranscribeView()
+                case .voices: VoicesView()
+                case .history: HistoryView()
+                case .models: ModelsView()
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { NowPlayingBar() }
+        }
+        .sheet(item: $studio.sheet) { sheet in
+            switch sheet {
+            case .clone(let url): CloneSheet(source: url)
+            case .design: DesignSheet()
+            case .edit(let voice): EditVoiceSheet(voice: voice)
+            }
+        }
+    }
+
+    private func row(_ pane: Pane) -> some View {
+        Label(pane.title, systemImage: pane.icon)
+            .badge(pane == .voices ? library.voices.count : pane == .history ? library.clips.count : 0)
+            .tag(pane)
+    }
+}
+
+/// Playback of a saved clip, across the bottom of every pane.
+struct NowPlayingBar: View {
+    @Environment(Player.self) private var player
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        if let id = player.playing, id != Player.live, let clip = library.clips.first(where: { $0.id.uuidString == id }) {
+            HStack(spacing: 12) {
+                Button { player.stop() } label: {
+                    Image(systemName: "stop.fill")
+                }
+                .buttonStyle(.borderless)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(clip.text).lineLimit(1)
+                    Text(clip.voiceName).font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 260, alignment: .leading)
+                Text(player.position.clock).monospacedDigit().foregroundStyle(.secondary)
+                Slider(value: Binding(get: { player.duration > 0 ? player.position / player.duration : 0 },
+                                      set: { player.seek(to: $0) }))
+                    .controlSize(.small)
+                Text(player.duration.clock).monospacedDigit().foregroundStyle(.secondary)
+                RateMenu()
+            }
+            .font(.callout)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.bar)
+            .overlay(alignment: .top) { Divider() }
+        }
+    }
+}
+
+struct RateMenu: View {
+    @Environment(Player.self) private var player
+
+    var body: some View {
+        @Bindable var player = player
+        Picker("Speed", selection: $player.rate) {
+            ForEach([0.75, 1, 1.25, 1.5, 2] as [Float], id: \.self) { rate in
+                Text(rate == 1 ? "1×" : "\(rate.formatted())×").tag(rate)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .fixedSize()
+        .help("Playback speed")
+    }
+}
+
+/// A round badge with the voice's initial, tinted by its name so each voice keeps its color.
+struct VoiceAvatar: View {
+    let voice: Voice
+    var size: CGFloat = 32
+
+    var body: some View {
+        Circle()
+            .fill(Self.color(for: voice.name).gradient)
+            .overlay {
+                if voice.isPreset {
+                    Text(voice.name.prefix(1).uppercased())
+                        .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                } else {
+                    Image(systemName: voice.origin == .designed ? "sparkles" : "waveform")
+                        .font(.system(size: size * 0.4, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: size, height: size)
+    }
+
+    static func color(for name: String) -> Color {
+        let hash = name.unicodeScalars.reduce(UInt32(5381)) { ($0 << 5) &+ $0 &+ $1.value }
+        return Color(hue: Double(hash % 360) / 360, saturation: 0.5, brightness: 0.78)
+    }
+}
+
+/// Bars drawn from peaks, filled up to `progress`.
+struct Waveform: View {
+    let peaks: [Float]
+    var progress: Double = 1
+    var color: Color = .accentColor
+
+    var body: some View {
+        Canvas { context, size in
+            guard !peaks.isEmpty else { return }
+            let bar: CGFloat = 2
+            let gap: CGFloat = 2
+            let count = max(1, Int(size.width / (bar + gap)))
+            let values = Self.resample(peaks, to: count)
+            for (index, value) in values.enumerated() {
+                let height = max(2, CGFloat(value) * size.height)
+                let x = CGFloat(index) * (bar + gap)
+                let rect = CGRect(x: x, y: (size.height - height) / 2, width: bar, height: height)
+                let played = Double(index) / Double(values.count) < progress
+                context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(played ? color : color.opacity(0.25)))
+            }
+        }
+    }
+
+    private static func resample(_ peaks: [Float], to count: Int) -> [Float] {
+        guard peaks.count > count else { return peaks }
+        let stride = Double(peaks.count) / Double(count)
+        return (0..<count).map { index in
+            let start = Int(Double(index) * stride)
+            let end = max(start + 1, Int(Double(index + 1) * stride))
+            return peaks[start..<min(end, peaks.count)].max() ?? 0
+        }
+    }
+}
+
+/// Every voice in a menu: yours, then each engine's built-in ones.
+struct VoicePicker: View {
+    @Environment(Library.self) private var library
+    @Binding var selection: String?
+
+    var body: some View {
+        Picker("Voice", selection: $selection) {
+            if !library.voices.isEmpty {
+                SwiftUI.Section("My Voices") {
+                    ForEach(library.voices) { voice in
+                        Text(voice.name).tag(Optional(voice.id))
+                    }
+                }
+            }
+            ForEach(Engine.allCases.filter { !$0.presets.isEmpty }) { engine in
+                SwiftUI.Section(engine.name) {
+                    ForEach(engine.presets, id: \.self) { preset in
+                        let voice = Voice.preset(preset, of: engine)
+                        Text("\(voice.name) — \(preset.language)").tag(Optional(voice.id))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// What a pane shows before there's anything in it.
+struct EmptyState<Actions: View>: View {
+    let title: String
+    let icon: String
+    let message: String
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: icon)
+        } description: {
+            Text(message)
+        } actions: {
+            actions
+        }
+    }
+}
+
+extension Int64 {
+    var bytes: String { ByteCountFormatter.string(fromByteCount: self, countStyle: .file) }
+}

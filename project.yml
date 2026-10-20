@@ -1,0 +1,39 @@
+name: Hypervoice
+options:
+  bundleIdPrefix: dev.alexis
+  deploymentTarget:
+    macOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 1
+packages:
+  MLXAudio:
+    url: https://github.com/Blaizzy/mlx-audio-swift
+    branch: main
+targets:
+  Hypervoice:
+    type: application
+    platform: macOS
+    sources:
+      - path: Hypervoice
+    dependencies:
+      - package: MLXAudio
+        product: MLXAudioTTS
+      - package: MLXAudio
+        product: MLXAudioSTT
+      - package: MLXAudio
+        product: MLXAudioCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.alexis.Hypervoice
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Hypervoice
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Hypervoice records a short sample of a voice you want to clone.
+        ENABLE_APP_SANDBOX: NO
+        CODE_SIGN_IDENTITY: "-"
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        SWIFT_APPROACHABLE_CONCURRENCY: YES
