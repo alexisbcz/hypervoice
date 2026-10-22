@@ -57,13 +57,16 @@ struct ContentView: View {
     }
 }
 
-/// Playback of a saved clip, across the bottom of every pane.
+/// Playback of a saved clip, across the bottom of every pane, except where the clip's own row already shows it.
 struct NowPlayingBar: View {
     @Environment(Player.self) private var player
     @Environment(Library.self) private var library
+    @Environment(Studio.self) private var studio
+    @Environment(Generator.self) private var generator
 
     var body: some View {
-        if let id = player.playing, id != Player.live, let clip = library.clips.first(where: { $0.id.uuidString == id }) {
+        if let id = player.playing, id != Player.live, let clip = library.clips.first(where: { $0.id.uuidString == id }),
+           !(clip.id == generator.lastClip?.id && [.speech, .script].contains(studio.section)) {
             HStack(spacing: 12) {
                 Button { player.stop() } label: {
                     Image(systemName: "stop.fill")

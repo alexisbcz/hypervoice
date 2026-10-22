@@ -8,7 +8,7 @@ final class Player {
 
     /// What's playing: a clip's id, or `live` while generated speech streams in.
     private(set) var playing: String?
-    /// Seconds into a saved clip.
+    /// Seconds into what's playing: a saved clip, or the live stream so far.
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
     var rate: Float = 1 {
@@ -23,6 +23,8 @@ final class Player {
     @ObservationIgnored private var format: AVAudioFormat?
     @ObservationIgnored private var pending = 0
     @ObservationIgnored private var isFinishing = false
+    /// Playing generated speech through the node, under `live` or the id of the clip it was saved as.
+    @ObservationIgnored private var streaming = false
     /// Bumped by every start and stop: stopping the node fires the callbacks of buffers it drops,
     /// and those mustn't count against what plays next.
     @ObservationIgnored private var run = 0
@@ -62,11 +64,28 @@ final class Player {
         if !engine.isRunning { try engine.start() }
         node.play()
         playing = Self.live
+        streaming = true
+        duration = 0
+        clock = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in
+            MainActor.assumeIsolated { Player.shared.tickStream() }
+        }
+    }
+
+    /// The node counts what it has played, at the stream's own rate whatever the playback speed.
+    private func tickStream() {
+        guard let now = node.lastRenderTime, let time = node.playerTime(forNodeTime: now), time.sampleRate > 0 else { return }
+        position = min(Double(time.sampleTime) / time.sampleRate, duration)
+    }
+
+    /// The live stream becomes `id`'s, once what it's playing has been saved under that id.
+    func adopt(_ id: String) {
+        if playing == Self.live { playing = id }
     }
 
     func enqueue(_ samples: [Float]) {
-        guard playing == Self.live, let format, let buffer = WAV.buffer(samples, sampleRate: Int(format.sampleRate)) else { return }
+        guard streaming, playing == Self.live, let format, let buffer = WAV.buffer(samples, sampleRate: Int(format.sampleRate)) else { return }
         pending += 1
+        duration += Double(samples.count) / format.sampleRate
         let run = run
         node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack, completionHandler: Self.onMain { [weak self] in
             self?.played(run)
@@ -76,7 +95,7 @@ final class Player {
     /// Nothing more is coming: the stream ends once what's queued has played.
     func finishStream() {
         isFinishing = true
-        if pending == 0, playing == Self.live { stop() }
+        if pending == 0, streaming { stop() }
     }
 
     /// Built outside the main actor: the audio thread calls it, and a main-actor closure would trap there.
@@ -122,6 +141,7 @@ final class Player {
         run += 1
         pending = 0
         isFinishing = false
+        streaming = false
         node.stop()
         clip?.stop()
         clip = nil

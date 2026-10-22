@@ -5,13 +5,16 @@ struct SpeechView: View {
     @Environment(Studio.self) private var studio
     @Environment(Generator.self) private var generator
     @Environment(ModelStore.self) private var models
+    @Environment(Player.self) private var player
     @Environment(\.textSize) private var textSize
+    /// The editor's own copy of the draft. It's kept rather than rebuilt from the draft each time, which would
+    /// put the cursor back at the end with every keystroke; playback only changes its highlight.
+    @State private var text = AttributedString()
 
     var body: some View {
-        @Bindable var studio = studio
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
-                TextEditor(text: $studio.draft)
+                TextEditor(text: $text)
                     .font(.system(size: textSize))
                     .lineSpacing(textSize * 0.3)
                     .scrollContentBackground(.hidden)
@@ -32,6 +35,35 @@ struct SpeechView: View {
         }
         .navigationTitle("Speech")
         .navigationSubtitle(studio.voice?.name ?? "")
+        .onChange(of: text) {
+            let typed = String(text.characters)
+            if typed != studio.draft { studio.draft = typed }
+        }
+        .onChange(of: studio.draft, initial: true) {
+            if String(text.characters) != studio.draft { text = AttributedString(studio.draft) }
+        }
+        .onChange(of: spokenWord) { highlight(spokenWord) }
+    }
+
+    /// Where the word being said is in the draft, in characters, while the speech made from it plays.
+    private var spokenWord: Range<Int>? {
+        let isPlaying = player.isPlaying(Player.live) || generator.lastClip.map { player.isPlaying($0.id.uuidString) } == true
+        guard isPlaying, generator.spokenText == studio.draft else { return nil }
+        let time = player.position
+        guard let word = generator.timeline.lazy.flatMap(\.words).last(where: { $0.start <= time && $0.characters != nil }),
+              time < word.end
+        else { return nil }
+        return word.characters
+    }
+
+    private func highlight(_ word: Range<Int>?) {
+        text.foregroundColor = nil
+        text.backgroundColor = nil
+        guard let word, word.upperBound <= text.characters.count else { return }
+        let start = text.characters.index(text.startIndex, offsetBy: word.lowerBound)
+        let end = text.characters.index(start, offsetBy: word.count)
+        text[start..<end].foregroundColor = .accentColor
+        text[start..<end].backgroundColor = Color.accentColor.opacity(0.15)
     }
 
     private var placeholder: String {
@@ -141,16 +173,31 @@ struct ClipRow: View {
     let clip: Clip
 
     var body: some View {
+        VStack(spacing: 10) {
+            row
+            if isPlaying, player.duration > 0 {
+                ProgressView(value: min(player.position / clip.duration, 1))
+                    .progressViewStyle(.linear)
+                    .controlSize(.mini)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: isPlaying)
+        .draggable(library.url(of: clip))
+    }
+
+    private var row: some View {
         HStack(spacing: 12) {
             Button {
                 player.toggle(clip)
             } label: {
-                Image(systemName: player.isPlaying(clip.id.uuidString) ? "pause.circle.fill" : "play.circle.fill")
+                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.title)
             }
             .buttonStyle(.borderless)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(clip.voiceName) · \(clip.duration.clock)")
+                Text("\(clip.voiceName) · \(isPlaying ? "\(player.position.clock) / " : "")\(clip.duration.clock)")
+                    .monospacedDigit()
                 if let time = clip.generationTime, clip.duration > 0 {
                     Text("Made in \(time.formatted(.number.precision(.fractionLength(1)))) s, \((clip.duration / time).formatted(.number.precision(.fractionLength(1))))× real time\(clip.engine.map { " with \($0.name)" } ?? "")")
                         .font(.caption)
@@ -167,6 +214,7 @@ struct ClipRow: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
         }
-        .draggable(library.url(of: clip))
     }
+
+    private var isPlaying: Bool { player.isPlaying(clip.id.uuidString) }
 }

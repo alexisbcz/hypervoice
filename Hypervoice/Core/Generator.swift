@@ -30,6 +30,12 @@ final class Generator {
     /// Loudness of what's been generated so far, for the live waveform.
     private(set) var peaks: [Float] = []
     private(set) var lastClip: Clip?
+    /// When each piece of the last generation is heard, for following along as it plays.
+    private(set) var timeline: [Spoken] = []
+    /// What the last generation said, when it was one piece of writing like Speech's: `timeline`'s words
+    /// point into it, so the editor can light them up.
+    private(set) var spokenText: String?
+    @ObservationIgnored private var located: (index: String.Index, offset: Int)?
     var error: String?
 
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -62,6 +68,9 @@ final class Generator {
         peaks = []
         error = nil
         lastClip = nil
+        timeline = []
+        spokenText = cues.count == 1 ? lines.first?.text : nil
+        located = spokenText.map { ($0.startIndex, 0) }
         let voiceNames = Array(NSOrderedSet(array: lines.map(\.voiceName))) as? [String] ?? []
         let engines = Set(lines.map(\.request.engine))
         task = Task {
@@ -83,6 +92,8 @@ final class Generator {
                         voiceName: voiceNames.joined(separator: ", "),
                         engine: engines.count == 1 ? engines.first : nil,
                         generationTime: synthesisTime)
+                    // Still speaking: what plays is now this clip, so its row shows it playing.
+                    if let lastClip { Player.shared.adopt(lastClip.id.uuidString) }
                 }
             } catch is CancellationError {
             } catch {
@@ -160,7 +171,15 @@ final class Generator {
                 let rate = try await Synth.shared.prepare(engine)
                 let started = Date.now
                 samples = Self.resample(try await Synth.shared.synthesize(request), from: rate, to: Self.sampleRate)
-                if report { synthesisTime += Date.now.timeIntervalSince(started) }
+                if report {
+                    synthesisTime += Date.now.timeIntervalSince(started)
+                    var piece = Spoken(request.text, samples, at: Double(output.count) / Double(Self.sampleRate), sampleRate: Self.sampleRate)
+                    if let spokenText, var located {
+                        piece.locate(in: spokenText, from: &located)
+                        self.located = located
+                    }
+                    timeline.append(piece)
+                }
                 // A breath between speakers in a script, unless a pause or a sound already separates them.
                 if number + 1 < pieces.count, case .speech(let next, _) = pieces[number + 1], next != cue {
                     samples += WAV.silence(seconds: 0.35, sampleRate: Self.sampleRate)
@@ -185,6 +204,63 @@ final class Generator {
             let high = min(low + 1, samples.count - 1)
             let fraction = Float(position - Double(low))
             return samples[low] * (1 - fraction) + samples[high] * fraction
+        }
+    }
+}
+
+/// A generated piece of text and when its words are heard, in seconds from the start of the clip.
+/// Engines don't say when each word falls, so words share the voiced part of the piece by length,
+/// with a little extra for the pause after punctuation.
+nonisolated struct Spoken: Sendable {
+    struct Word: Sendable {
+        var range: Range<String.Index>
+        var start: Double
+        var end: Double
+        /// Where the word is in the text it was generated from, counted in characters, once `locate` finds it.
+        var characters: Range<Int>?
+    }
+
+    let text: String
+    let start: Double
+    let end: Double
+    private(set) var words: [Word]
+
+    init(_ text: String, _ samples: [Float], at offset: Double, sampleRate: Int) {
+        self.text = text
+        let peak = samples.lazy.map(abs).max() ?? 0
+        let threshold = max(peak * 0.05, 0.002)
+        let first = samples.firstIndex { abs($0) > threshold } ?? 0
+        let last = samples.lastIndex { abs($0) > threshold } ?? samples.count
+        start = offset + Double(first) / Double(sampleRate)
+        end = offset + Double(last) / Double(sampleRate)
+
+        var ranges: [Range<String.Index>] = []
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byWords) { _, range, _, _ in ranges.append(range) }
+        let weights = ranges.enumerated().map { index, range -> Double in
+            let next = text[range.upperBound...].prefix { !$0.isLetter && !$0.isNumber }
+            // Trimming took off the silence after the last word.
+            let pause = index == ranges.count - 1 ? 0 : next.contains(where: { ".!?".contains($0) }) ? 4.0 : next.contains(where: { ",;:—–".contains($0) }) ? 2.5 : 0
+            return Double(text[range].count) + 1.5 + pause
+        }
+        let total = max(weights.reduce(0, +), 1)
+        var time = start
+        var words: [Word] = []
+        for (range, weight) in zip(ranges, weights) {
+            let length = (end - start) * weight / total
+            words.append(Word(range: range, start: time, end: time + length))
+            time += length
+        }
+        self.words = words
+    }
+
+    /// Finds each word in `source`, the text this piece was cut from, starting where the last piece left off.
+    mutating func locate(in source: String, from position: inout (index: String.Index, offset: Int)) {
+        for i in words.indices {
+            guard let found = source.range(of: text[words[i].range], range: position.index..<source.endIndex) else { continue }
+            let start = position.offset + source.distance(from: position.index, to: found.lowerBound)
+            let end = start + source.distance(from: found.lowerBound, to: found.upperBound)
+            words[i].characters = start..<end
+            position = (found.upperBound, end)
         }
     }
 }
