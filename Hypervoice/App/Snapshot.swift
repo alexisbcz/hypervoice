@@ -7,6 +7,7 @@ import AppKit
 enum Snapshot {
     static func runIfRequested(_ studio: Studio) {
         let environment = ProcessInfo.processInfo.environment
+        if let path = environment["HYPERVOICE_RECORD"] { return Recording.run(studio, to: URL(fileURLWithPath: path)) }
         guard let folder = environment["HYPERVOICE_SNAPSHOT"] else { return }
         let panes = environment["HYPERVOICE_PANES"]?.split(separator: ",").compactMap { Pane(rawValue: String($0)) } ?? Pane.allCases
         Task {
@@ -103,10 +104,10 @@ enum Snapshot {
         try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: url)
     }
 
-    private typealias CreateImage = @convention(c) (CGRect, UInt32, CGWindowID, UInt32) -> Unmanaged<CGImage>?
+    typealias CreateImage = @convention(c) (CGRect, UInt32, CGWindowID, UInt32) -> Unmanaged<CGImage>?
 
     /// `CGWindowListCreateImage`, looked up at run time since Swift no longer exposes it.
-    private static func capture(_ window: CGWindowID) -> CGImage? {
+    static func capture(_ window: CGWindowID) -> CGImage? {
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let create = unsafeBitCast(symbol, to: CreateImage.self)
         // kCGWindowListOptionIncludingWindow, kCGWindowImageDefault.
