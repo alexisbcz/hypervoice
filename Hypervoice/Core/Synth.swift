@@ -52,12 +52,22 @@ actor Synth {
     /// Loads the engine, downloading it first if needed, and returns its sample rate.
     @discardableResult
     func prepare(_ engine: Engine) async throws -> Int {
-        try await exclusively { try await model(for: engine).sampleRate }
+        try await exclusively {
+            if engine.runsOnLlama {
+                try await startLlama(engine)
+                return LFM3.sampleRate
+            }
+            return try await model(for: engine).sampleRate
+        }
     }
 
     /// One stretch of speech as mono Float32 samples at the engine's sample rate.
     func synthesize(_ request: SpeechRequest) async throws -> [Float] {
         try await exclusively {
+            if request.engine.runsOnLlama {
+                try await startLlama(request.engine)
+                return try await LFM3.shared.speak(request.text, voice: request.voice)
+            }
             let model = try await model(for: request.engine)
             var refAudio: MLXArray?
             if request.engine.clones, let url = request.sample {
@@ -100,16 +110,26 @@ actor Synth {
         return try await body()
     }
 
-    func unload() {
+    func unload() async {
         model = nil
         loaded = nil
         reference = nil
         Memory.clearCache()
+        await LFM3.shared.stop()
+    }
+
+    /// LFM3 Audio's server takes the place of an MLX model, so the two don't share memory either.
+    private func startLlama(_ engine: Engine) async throws {
+        if loaded != engine {
+            await unload()
+            loaded = engine
+        }
+        try await LFM3.shared.start()
     }
 
     private func model(for engine: Engine) async throws -> any SpeechGenerationModel {
         if loaded == engine, let model { return model }
-        unload()
+        await unload()
         let model = try await TTS.loadModel(modelRepo: engine.repository, modelType: engine.modelType)
         self.model = model
         loaded = engine

@@ -53,6 +53,7 @@ struct VoicesView: View {
         var parts = [engine.summary]
         if !models.isInstalled(engine) { parts.append("Downloads \(engine.downloadSize.bytes) on first use.") }
         if engine.isGated, !HubToken.isSet { parts.append("Needs a Hugging Face token in Settings.") }
+        if let note = engine.licenseNote { parts.append(note) }
         return parts.joined(separator: " ")
     }
 

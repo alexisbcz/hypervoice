@@ -1,9 +1,9 @@
 import Foundation
 
-/// A speech model Hypervoice can run, all through MLX on Apple silicon.
+/// A speech model Hypervoice can run, through MLX on Apple silicon, or llama.cpp for LFM3 Audio.
 /// Each downloads from Hugging Face the first time it's used.
 nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
-    case qwen, qwenDesign, qwenPresets, chatterbox, omnivoice, kokoro, pocket, phonon, phononMultilingual
+    case qwen, qwenDesign, qwenPresets, chatterbox, omnivoice, kokoro, pocket, phonon, phononMultilingual, lfm3
 
     var id: String { rawValue }
 
@@ -18,6 +18,7 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .pocket: "Pocket TTS"
         case .phonon: "Phonon"
         case .phononMultilingual: "Phonon Multilingual"
+        case .lfm3: "LFM3 Audio"
         }
     }
 
@@ -32,6 +33,7 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .pocket: "Kyutai's tiny model. Starts speaking almost instantly."
         case .phonon: "Gradium's 31M on-device model: very fast, with 37 English voices. Apache 2.0."
         case .phononMultilingual: "Gradium's 40M model: 102 voices in English, French, German, Spanish and Portuguese. Non-commercial license."
+        case .lfm3: "Liquid AI's 2B model, run by llama.cpp: a female and a male voice in 18 languages. Also transcribes."
         }
     }
 
@@ -46,10 +48,11 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .pocket: "mlx-community/pocket-tts"
         case .phonon: "gradium/phonon-31m-en"
         case .phononMultilingual: "gradium/phonon-40m-multilingual"
+        case .lfm3: "LiquidAI/LFM3-Audio-2B-GGUF"
         }
     }
 
-    /// What `TTS.loadModel` dispatches on, given up front so a cached model loads offline.
+    /// What `TTS.loadModel` dispatches on, given up front so a cached model loads offline. LFM3 Audio doesn't go through it.
     var modelType: String {
         switch self {
         case .qwen, .qwenDesign, .qwenPresets: "qwen3_tts"
@@ -58,6 +61,7 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .kokoro: "kokoro"
         case .pocket: "pocket_tts"
         case .phonon, .phononMultilingual: "phonon"
+        case .lfm3: "lfm3"
         }
     }
 
@@ -73,6 +77,8 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
         case .pocket: 240_000_000
         case .phonon: 104_000_000
         case .phononMultilingual: 123_000_000
+        // The two GGUF files and llama.cpp.
+        case .lfm3: 2_200_000_000
         }
     }
 
@@ -86,10 +92,22 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
     var takesDirection: Bool { self == .qwenPresets }
     /// Hugging Face only serves it once you accept its terms there and give Hypervoice your token.
     var isGated: Bool { self == .phononMultilingual }
+    /// Runs in llama.cpp's server, as a child process, rather than in MLX.
+    var runsOnLlama: Bool { self == .lfm3 }
+    /// Can also turn speech into text, through the API.
+    var transcribes: Bool { self == .lfm3 }
 
-    /// The license, when it limits what you can do with the audio.
+    /// The license, when it limits what you can do with the model or the audio.
     var licenseNote: String? {
-        self == .phononMultilingual ? "CC BY-NC 4.0: not for commercial use without Gradium's permission." : nil
+        switch self {
+        case .phononMultilingual: "CC BY-NC 4.0: not for commercial use without Gradium's permission."
+        case .lfm3: "LFM Open License v1.0: free to use, commercially too, below $10M in annual revenue; above that, Liquid AI's permission is needed."
+        default: nil
+        }
+    }
+
+    var licensePage: URL? {
+        self == .lfm3 ? URL(string: "https://huggingface.co/\(repository)/blob/main/LICENSE") : nil
     }
 
     var page: URL { URL(string: "https://huggingface.co/\(repository)")! }
@@ -132,6 +150,8 @@ nonisolated enum Engine: String, CaseIterable, Identifiable, Codable, Sendable {
             PhononVoices.english
         case .phononMultilingual:
             PhononVoices.all
+        case .lfm3:
+            LFM3Voices.all
         default:
             []
         }

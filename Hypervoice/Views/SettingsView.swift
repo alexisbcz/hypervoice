@@ -116,7 +116,7 @@ private struct APISettings: View {
                 """)
                 .font(.system(.callout, design: .monospaced))
                 .textSelection(.enabled)
-                Text("GET /v1/voices lists every voice. Add \"model\" to pick an engine and \"instructions\" to direct a CustomVoice preset.")
+                Text("GET /v1/voices lists every voice. Add \"model\" to pick an engine and \"instructions\" to direct a CustomVoice preset. POST /v1/audio/transcriptions with model=lfm3 transcribes with LFM3 Audio instead of Whisper.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

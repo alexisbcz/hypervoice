@@ -8,6 +8,10 @@ struct HypervoiceApp: App {
 
     init() {
         HubToken.apply()
+        // LFM3 Audio's llama.cpp server is a separate process, which would otherwise keep running.
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+            LFM3.terminate()
+        }
     }
 
     var body: some Scene {

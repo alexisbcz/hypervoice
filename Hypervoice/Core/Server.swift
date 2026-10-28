@@ -7,6 +7,7 @@ import Observation
 ///
 ///     curl localhost:8770/v1/audio/speech -d '{"input": "Hello", "voice": "Ryan"}' -o hello.wav
 ///     curl localhost:8770/v1/audio/transcriptions -F file=@hello.wav
+///     curl localhost:8770/v1/audio/transcriptions -F file=@hello.wav -F model=lfm3
 @Observable
 final class Server {
     static let shared = Server()
@@ -130,6 +131,7 @@ final class Server {
     }
 
     /// A multipart upload with a "file" field, as OpenAI clients send it, or the audio as the raw body.
+    /// Whisper transcribes, unless "model" names LFM3 Audio.
     private func transcription(_ request: Request) async -> Response {
         let form = request.multipart
         guard let audio = form["file"] ?? (request.body.isEmpty ? nil : request.body) else {
@@ -143,7 +145,15 @@ final class Server {
         do {
             try audio.write(to: url)
             let language = form["language"].flatMap { String(data: $0, encoding: .utf8) }
-            let transcript = try await ModelStore.shared.track(.whisper) { try await Transcriber.shared.transcribe(url, language: language) }
+            let model = form["model"].flatMap { String(data: $0, encoding: .utf8) }?.lowercased() ?? ""
+            let transcript = if model.contains(Engine.lfm3.rawValue) {
+                try await ModelStore.shared.track(.engine(.lfm3)) {
+                    let samples = try await WAV.read(url, sampleRate: LFM3.transcriptionRate)
+                    return try await LFM3.shared.transcribe(samples, source: url, language: language)
+                }
+            } else {
+                try await ModelStore.shared.track(.whisper) { try await Transcriber.shared.transcribe(url, language: language) }
+            }
             switch form["response_format"].flatMap({ String(data: $0, encoding: .utf8) }) {
             case "text": return Response(status: 200, type: "text/plain; charset=utf-8", body: Data(transcript.text.utf8))
             case "srt": return Response(status: 200, type: "text/plain; charset=utf-8", body: Data(transcript.srt.utf8))

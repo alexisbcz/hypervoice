@@ -16,7 +16,7 @@ struct ModelsView: View {
             } header: {
                 Text("Transcription")
             } footer: {
-                Text("Models run entirely on this Mac through MLX. Each downloads from Hugging Face the first time you use it, then works offline. \(models.totalSize > 0 ? "Using \(models.totalSize.bytes)." : "")")
+                Text("Models run entirely on this Mac, through MLX or, for LFM3 Audio, llama.cpp. Each downloads from Hugging Face the first time you use it, then works offline. \(models.totalSize > 0 ? "Using \(models.totalSize.bytes)." : "")")
                     .foregroundStyle(.secondary)
             }
         }
@@ -35,6 +35,7 @@ struct ModelsView: View {
         if engine.designs { tags.append("Voice design") }
         if !engine.presets.isEmpty { tags.append("\(engine.presets.count) voice\(engine.presets.count == 1 ? "" : "s")") }
         if engine.takesDirection { tags.append("Direction") }
+        if engine.transcribes { tags.append("Transcription") }
         return tags
     }
 }
@@ -65,7 +66,11 @@ private struct ModelRow: View {
                 Text(model.repository).font(.caption).foregroundStyle(.tertiary).textSelection(.enabled)
                 if case .engine(let engine) = model {
                     if let note = engine.licenseNote {
-                        Text(note).font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Text(note).foregroundStyle(.secondary)
+                            if let license = engine.licensePage { Link("Read it", destination: license) }
+                        }
+                        .font(.caption)
                     }
                     if engine.isGated, !models.isInstalled(model) {
                         HStack(spacing: 4) {

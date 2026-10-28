@@ -41,7 +41,7 @@ enum ModelID: Hashable, Identifiable, Sendable {
 }
 
 /// Which models are downloaded, and the progress of those downloading.
-/// MLX Audio keeps each model in its own folder in the Hugging Face cache.
+/// MLX Audio keeps each model in its own folder in the Hugging Face cache; LFM3 Audio's, with llama.cpp, is in Application Support.
 @Observable
 final class ModelStore {
     static let shared = ModelStore()
@@ -57,7 +57,8 @@ final class ModelStore {
     init() { refresh() }
 
     static func folder(of model: ModelID) -> URL {
-        HubCache.default.cacheDirectory
+        if case .engine(let engine) = model, engine.runsOnLlama { return LFM3.folder }
+        return HubCache.default.cacheDirectory
             .appending(path: "mlx-audio", directoryHint: .isDirectory)
             .appending(path: model.repository.replacingOccurrences(of: "/", with: "_"), directoryHint: .isDirectory)
     }
@@ -77,7 +78,8 @@ final class ModelStore {
         for model in ModelID.all where downloading[model] == nil {
             let folder = Self.folder(of: model)
             let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-            guard files.contains(where: { $0.pathExtension == "safetensors" }) else { continue }
+            let isComplete = model == .engine(.lfm3) ? LFM3.isInstalled : files.contains { $0.pathExtension == "safetensors" }
+            guard isComplete else { continue }
             installed[model] = Self.size(of: folder)
         }
         self.installed = installed
@@ -128,6 +130,8 @@ final class ModelStore {
             switch model {
             case .engine(let engine):
                 if await Synth.shared.loadedEngine == engine { await Synth.shared.unload() }
+                // Transcription may have started it without Synth.
+                if engine.runsOnLlama { await LFM3.shared.stop() }
             case .whisper:
                 await Transcriber.shared.unload()
             }
